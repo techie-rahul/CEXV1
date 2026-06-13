@@ -1,0 +1,101 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String
+  createdAt DateTime @default(now())
+
+  balances Balance[]
+  orders   Order[]
+}
+
+model Fill {
+  id          String   @id @default(uuid())
+  price       Decimal  @db.Decimal(20, 8)
+  quantity    Decimal  @db.Decimal(20, 8)
+  buyOrderId  String
+  sellOrderId String
+  createdAt   DateTime @default(now())
+
+  buyOrder  Order @relation("BuyOrder", fields: [buyOrderId], references: [id])
+  sellOrder Order @relation("SellOrder", fields: [sellOrderId], references: [id])
+
+  @@index([buyOrderId])
+  @@index([sellOrderId])
+}
+
+model Balance {
+  id        String  @id @default(uuid())
+  userId    String
+  asset     Assets
+  available Decimal @db.Decimal(20, 8)
+  locked    Decimal @db.Decimal(20, 8)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, asset])
+}
+
+model Stock {
+  id     String       @id           @default(uuid())
+  title  String
+  symbol String @unique
+
+  orders Order[]
+}
+
+model Order {
+  id             String   @id @default(uuid())
+  userId         String
+  side           Side
+  type           Type
+  price          Decimal  @db.Decimal(20, 8)
+  quantity       Decimal  @db.Decimal(20, 8)
+  filledQuantity Decimal  @default(0) @db.Decimal(20, 8)
+  status         Status
+  stockId        String
+  createdAt      DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id])
+  stock Stock @relation(fields: [stockId], references: [id])
+
+  buyFills  Fill[] @relation("BuyOrder")
+  sellFills Fill[] @relation("SellOrder")
+}
+
+enum Side {
+  BUY
+  SELL
+}
+
+enum Type {
+  LIMIT
+  MARKET
+}
+
+enum Status {
+  OPEN
+  CANCELLED
+  PARTIALLY_FILLED
+  FILLED
+}
+
+enum Assets {
+  INR
+  AXIS
+  TATA
+  HDFC
+}
