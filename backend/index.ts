@@ -8,6 +8,7 @@ import bcrypt from "bcrypt"
 import {authMiddleware} from "./middleware"
 import { use } from "react";
 import { id } from "zod/locales";
+import { isQualifiedName } from "typescript";
 
 const app = express();
 
@@ -339,7 +340,7 @@ app.get("/orders" , authMiddleware , async (req , res)=>{
 app.delete("/order/:orderId" , authMiddleware , async (req , res)=>{
 
     const userId = req.userId;
-    const orderId  = req.params.orderId
+    const orderId  = req.params.orderId as string;
 
     if(!userId){
         return res.json({
@@ -355,7 +356,7 @@ app.delete("/order/:orderId" , authMiddleware , async (req , res)=>{
     });
 
     if(!order){
-        return res.status(401).json({
+        return res.status(400).json({
             message : "no oder found"
         })
     };
@@ -368,6 +369,9 @@ app.delete("/order/:orderId" , authMiddleware , async (req , res)=>{
             message : "order can't be cancelled"
         })
     }
+    let balanceUpdate 
+
+    if(order.side == Side.BUY){
 
     const amountToUnlock = Number(order.price) * ( Number(order.quantity) - Number(order.filledQuantity) );
     
@@ -379,12 +383,12 @@ app.delete("/order/:orderId" , authMiddleware , async (req , res)=>{
     });
 
     if(!balance){
-        return res.status(401).json({
+        return res.status(400).json({
             message : "balance not found"
         })
     }
 
-    const updatedBalance = await prisma.balance.update({
+     balanceUpdate =  prisma.balance.update({
         where:{
             userId_asset:{
                 userId ,
@@ -397,14 +401,67 @@ app.delete("/order/:orderId" , authMiddleware , async (req , res)=>{
         }
     });
 
-    const cancelledOrder  = await prisma.order.update({
-        where:{
-            id : orderId
-        },
-        data:{
-            status : Status.CANCELLED 
-        }
-    })
+    }
+
+    else{
+        const quantity = Number(order.quantity);
+
+        const stock = await prisma.stock.findUnique({
+            where : {
+                id: order.stockId
+            }
+        });
+
+        if(!stock){
+            return res.status(400).json({
+                message : "no stock found"
+            })
+        };
+
+        const asset = stock.symbol as Assets;
+
+        const balance = await prisma.balance.findFirst({
+            where:{
+                userId,
+                asset
+            }
+        });
+
+        if(!balance){
+            return res.status(400).json({
+                message : "balance not found"
+            })
+        };
+
+       const quantityToUnlock = quantity - Number(order.filledQuantity);
+
+        balanceUpdate = prisma.balance.update({
+            where: {
+                userId_asset:{
+                     userId,
+                     asset
+                }
+               
+            },
+            data:{
+                available : Number(balance.available) + quantityToUnlock,
+                locked : Number(balance.locked) - quantityToUnlock
+            }
+        })
+
+    }
+
+    const[updatedBalance , cancelledOrder] = await prisma.$transaction([
+        balanceUpdate , 
+            prisma.order.update({
+                where:{
+                    id : order.id
+                },
+                data:{
+                    status : Status.CANCELLED
+                }
+            })
+    ]);
 
     return res.json({
         updatedBalance,
