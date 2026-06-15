@@ -163,7 +163,8 @@ app.get("/balance" , authMiddleware , async (req , res)=>{
 app.get("/stocks" , async (req , res)=>{
     const stocks = await prisma.stock.findMany();
     return res.json(stocks);
-})
+});
+
 
 app.post("/order" , authMiddleware , async(req , res )=>{
     const userId = req.userId;
@@ -196,12 +197,13 @@ app.post("/order" , authMiddleware , async(req , res )=>{
     }
 
    
+    if(side == Side.BUY){
 
     const requiredAmount = price * quantity;
 
     const amount = await prisma.balance.findFirst({
         where:{
-            userId:req.userId,
+            userId,
             asset:Assets.INR
         },
         select:{
@@ -217,23 +219,23 @@ app.post("/order" , authMiddleware , async(req , res )=>{
         })
     }
 
-    console.log(amount.available);
-    console.log(typeof amount.available);
+    // console.log(amount.available);
+    // console.log(typeof amount.available);
 
     const availableAmount = Number(amount.available);
-
 
     if(requiredAmount > availableAmount){
         return res.status(401).json({
             message : "insufficient balance"
         })
-    }
+    };
+
     const newLocked = Number(amount.locked)+ requiredAmount;
 
-    const updated =  await prisma.balance.update({
+    const updatedBalance =  await prisma.balance.update({
         where: {
             userId_asset:{
-                userId : req.userId!,
+                userId,
                 asset : Assets.INR
             }
         },
@@ -243,7 +245,49 @@ app.post("/order" , authMiddleware , async(req , res )=>{
         }
     });
 
-    const createdOrder = await prisma.order.create({
+ }
+
+ else{
+
+    const asset = stock.symbol as Assets;
+
+    const balance = await prisma.balance.findFirst({
+        where:{
+            userId,
+            asset
+        }
+    })
+
+    if(!balance){
+        return res.status(404).json({
+            message : "stock balance not found"
+        })
+    }
+
+    const availableShares = Number(balance?.available);
+
+    if(quantity > availableShares){
+        return res.status(401).json({
+            message : "insufficient stock balance"
+        })
+    };
+
+    const updatedBalance = await prisma.balance.update({
+        where:{
+            userId_asset:{
+                userId,
+                asset
+            }
+        },
+        data:{
+          available : availableShares - quantity,
+          locked : Number(balance?.locked) + quantity
+        }
+    });
+
+}
+
+const createdOrder =  await prisma.order.create({
         data:{
             userId,
             stockId,
@@ -254,21 +298,13 @@ app.post("/order" , authMiddleware , async(req , res )=>{
             filledQuantity : 0,
             status : Status.OPEN
         }
-    })
+    });
 
     return res.json({
         orderId : createdOrder.id,
         message : "order created successfully"
     });
-
     
-
- 
-        
-
-    
-
-
 })
 
 app.get("/orders" , authMiddleware , async (req , res)=>{
