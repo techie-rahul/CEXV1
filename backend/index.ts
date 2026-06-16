@@ -8,7 +8,7 @@ import bcrypt from "bcrypt"
 import {authMiddleware} from "./middleware"
 import { use } from "react";
 import { id } from "zod/locales";
-import { isQualifiedName } from "typescript";
+import { isQualifiedName, isReturnStatement } from "typescript";
 
 const app = express();
 
@@ -470,4 +470,49 @@ app.delete("/order/:orderId" , authMiddleware , async (req , res)=>{
 
 })
 
+app.get("/orderbook/:symbol", async (req, res) => {
+    const symbol = req.params.symbol;
+
+    const stock = await prisma.stock.findFirst({
+        where:{
+            symbol
+        }
+    });
+
+    if(!stock){
+        return res.status(401).json({
+            message : "no stock found"
+        })
+    };
+    
+    const bids = await prisma.order.findMany({
+        where:{
+            stockId : stock.id,
+            side : Side.BUY,
+            status : Status.OPEN
+        },
+        orderBy:[
+            {price : "desc"},
+            {createdAt : "asc"}
+        ]
+    });
+
+    const asks = await prisma.order.findMany({
+        where:{
+            stockId : stock.id,
+            side : Side.SELL,
+            status: Status.OPEN
+        },
+        orderBy:[
+            {price : "asc"},
+            {createdAt : "asc"}
+        ]
+    });
+
+    return res.json({
+        bids, 
+        asks
+    });
+    
+});
 app.listen(3000);
