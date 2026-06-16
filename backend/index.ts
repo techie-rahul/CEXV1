@@ -7,7 +7,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt"
 import {authMiddleware} from "./middleware"
 import { use } from "react";
-import { id } from "zod/locales";
+import { id, tr } from "zod/locales";
 import { isQualifiedName, isReturnStatement } from "typescript";
 
 const app = express();
@@ -552,11 +552,47 @@ app.get("/orderbook/:symbol", async (req, res) => {
     );
 
     //Aggregated depth
-    
+
      return res.json({
         bids: aggregatedBids,
         asks: aggregatedAsks
     });
 
 });
+
+app.get("/fills/:symbol", async(req, res) => {
+    const symbol = req.params.symbol;
+
+    const stock = await prisma.stock.findFirst({
+        where: {
+            symbol
+        }
+    });
+
+    if(!stock){
+        return res.status(404).json({
+            message : "stock not found"
+        })
+    };
+
+    const fills =  await prisma.fill.findMany({
+        where:{
+            buyOrder:{
+                stockId : stock.id
+            }
+        },
+        include:{
+            buyOrder : true,
+            sellOrder : true
+        },
+        orderBy:{
+            createdAt:"asc"
+        }
+    })
+
+    return res.json({
+        fills
+    });
+});
+
 app.listen(3000);
