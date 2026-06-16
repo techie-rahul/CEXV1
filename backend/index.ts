@@ -509,10 +509,54 @@ app.get("/orderbook/:symbol", async (req, res) => {
         ]
     });
 
-    return res.json({
-        bids, 
-        asks
-    });
+    //Aggregate bids
+
+    const bidDepth: Record<string, number> = {};
+
+    for(const bid of bids){
+        const price = bid.price.toString();
+
+        if(!bidDepth[price]){
+            bidDepth[price] = 0;
+        }
+
+        bidDepth[price] += Number(bid.quantity);
+    }
     
+        //Aggregate asks
+
+        const askDepth: Record<string, number> = {};
+
+    for(const ask of asks){
+        const price = ask.price.toString();
+
+        if(!askDepth[price]){
+            askDepth[price] = 0;
+        }
+
+        askDepth[price] += Number(ask.quantity);
+    }
+
+      const aggregatedBids = Object.entries(bidDepth).map(
+        ([price, quantity]) => ({
+            price: Number(price),
+            quantity
+        })
+    );
+
+    const aggregatedAsks = Object.entries(askDepth).map(
+        ([price, quantity]) => ({
+            price: Number(price),
+            quantity
+        })
+    );
+
+    //Aggregated depth
+    
+     return res.json({
+        bids: aggregatedBids,
+        asks: aggregatedAsks
+    });
+
 });
 app.listen(3000);
