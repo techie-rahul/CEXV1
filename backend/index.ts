@@ -8,7 +8,7 @@ import bcrypt from "bcrypt"
 import {authMiddleware} from "./middleware"
 import { use } from "react";
 import { id, tr } from "zod/locales";
-import { isQualifiedName, isReturnStatement } from "typescript";
+import { isJsxSelfClosingElement, isQualifiedName, isReturnStatement } from "typescript";
 
 const app = express();
 
@@ -304,6 +304,106 @@ app.post("/order" , authMiddleware , async(req , res )=>{
             }
         })
     ]);
+
+    if(createdOrder.side == Side.BUY){
+
+        
+        const matchingOrders = await prisma.order.findMany({
+            where:{
+                 userId: {
+                        not: createdOrder.userId
+                },
+                stockId : createdOrder.stockId,
+                side : Side.SELL,
+                status : Status.OPEN,
+                price:{
+                    lte : createdOrder.price
+                }
+            },
+            orderBy : [
+                {price : "asc"},
+                {createdAt : "asc"}
+            ]
+        });
+
+        let remaining = Number(createdOrder.quantity) - Number(createdOrder.filledQuantity);
+
+        let buyFilled = Number(createdOrder.filledQuantity);
+
+        let totalSpent = 0;
+
+
+    for (const sellorder of matchingOrders) {
+
+    const sellRemaining =
+        Number(sellorder.quantity) -
+        Number(sellorder.filledQuantity);
+
+    const tradeQty = Math.min(
+        remaining,
+        sellRemaining
+    );
+
+    remaining -= tradeQty;
+
+    const fill = await prisma.fill.create({
+        data: {
+            price: sellorder.price,
+            quantity: tradeQty,
+            buyOrderId: createdOrder.id,
+            sellOrderId: sellorder.id
+        }
+    });
+
+    buyFilled += tradeQty;
+
+    const buyNewFilled = buyFilled;
+
+    const sellNewFilled = Number(sellorder.filledQuantity) + tradeQty;
+
+    const buyStatus = buyNewFilled === Number(createdOrder.quantity) ? Status.FILLED : Status.PARTIALLY_FILLED;
+
+    const sellStatus = sellNewFilled === Number(sellorder.quantity) ? Status.FILLED : Status.PARTIALLY_FILLED;
+
+    await prisma.order.update({
+        where: {
+            id: createdOrder.id
+        },
+        data: {
+            filledQuantity: buyNewFilled,
+            status: buyStatus
+        }
+    });
+
+    await prisma.order.update({
+        where: {
+            id: sellorder.id
+        },
+        data: {
+            filledQuantity: sellNewFilled,
+            status: sellStatus
+        }
+    });
+
+
+    const tradeValue =
+        Number(sellorder.price) * tradeQty;
+
+    totalSpent += tradeValue;
+
+    if (remaining === 0) {
+        break;
+    }
+
+}
+    const refund = Number(createdOrder.price) * Number(createdOrder.quantity) - totalSpent;
+        
+       
+        return res.json({
+            orderId: createdOrder.id,
+            refund
+        })
+    }
 
     return res.json({
         orderId : createdOrder.id,
