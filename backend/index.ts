@@ -391,14 +391,174 @@ app.post("/order" , authMiddleware , async(req , res )=>{
 
     totalSpent += tradeValue;
 
+    const buyerInrBalance = await prisma.balance.findUnique({
+        where:{
+            userId_asset:{
+                userId : createdOrder.userId,
+                asset : Assets.INR
+            }
+        }
+    });
+
+    if(!buyerInrBalance){
+        return res.status(404).json({
+            message : " buyer balance not found"
+        })
+    }
+
+    const buyerAsset = stock.symbol as Assets;
+
+    const buyerStockBalance = await prisma.balance.findUnique({
+        where : {
+            userId_asset : {
+                userId : createdOrder.userId,
+                asset : buyerAsset
+            }
+        }
+    });
+
+let buyerStockUpdate;
+
+if(!buyerStockBalance){
+      buyerStockUpdate =  prisma.balance.create({
+        data:{
+            userId: createdOrder.userId,
+            asset: buyerAsset,
+            available: tradeQty,
+            locked: 0
+        }
+    });
+}
+else{
+     buyerStockUpdate =  prisma.balance.update({
+        where:{
+            userId_asset:{
+                userId: createdOrder.userId,
+                asset: buyerAsset
+            }
+        },
+        data:{
+            available:
+                Number(buyerStockBalance.available) + tradeQty
+        }
+    });
+}
+
+    const sellerInrBalance =  await prisma.balance.findUnique({
+        where: {
+             userId_asset : {
+                userId : sellorder.userId,
+                asset : Assets.INR
+             }
+        }
+    });
+
+    if(!sellerInrBalance){
+        return res.status(404).json({
+            message : "seller balance not found"
+        })
+    }
+
+    const sellerAsset = stock.symbol as Assets;
+
+    const sellerStockBalance =  await prisma.balance.findUnique({
+        where : {
+            userId_asset : {
+                userId : sellorder.userId,
+                asset : sellerAsset
+            }
+        }
+    }) ; 
+
+    if(!sellerStockBalance){
+        return res.status(404).json({
+            message : "seller stock balance not found"
+        })
+    }
+
+    const buyerInrUpdate =  prisma.balance.update({
+        where : {
+            userId_asset : {
+                userId : createdOrder.userId,
+                asset : Assets.INR
+            }
+        },
+        data : {
+            locked : Number(buyerInrBalance.locked) - tradeValue 
+        }   
+    });
+
+    
+
+    const sellerInrUpdate =  prisma.balance.update({
+        where : {
+            userId_asset : {
+                userId : sellorder.userId,
+                asset : Assets.INR
+            }
+        },
+        data : {
+            available : Number(sellerInrBalance.available) + tradeValue 
+        }   
+    });
+
+    const sellerStockUpdate =  prisma.balance.update({
+        where : {
+            userId_asset : {
+                userId : sellorder.userId,
+                asset : sellerAsset
+            }
+        },
+        data : {
+            locked : Number(sellerStockBalance.locked) - tradeQty
+        }
+    });
+
+    await prisma.$transaction([
+   buyerInrUpdate,
+   buyerStockUpdate,
+   sellerInrUpdate,
+   sellerStockUpdate
+]);
+
     if (remaining === 0) {
         break;
     }
 
 }
-    const refund = Number(createdOrder.price) * Number(createdOrder.quantity) - totalSpent;
-        
-       
+    let refund = 0;
+
+    if(remaining === 0){
+        refund = Number(createdOrder.price) * Number(createdOrder.quantity) - totalSpent;
+
+    }
+    
+    if(refund > 0){
+
+         const buyerInrBalanceAfterTrade  = await prisma.balance.findUnique({
+        where : {
+            userId_asset : {
+
+                userId : createdOrder.userId,
+                asset : Assets.INR
+            }
+        }
+    });
+        await prisma.balance.update({
+            where : {
+                userId_asset : {
+                    userId : createdOrder.userId,
+                    asset : Assets.INR
+                }
+            },
+            data : {
+                available : Number(buyerInrBalanceAfterTrade?.available) + refund,
+                locked : Number(buyerInrBalanceAfterTrade?.locked) - refund
+            }
+        });
+
+    }
+
         return res.json({
             orderId: createdOrder.id,
             refund
